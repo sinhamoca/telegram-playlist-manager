@@ -1,0 +1,32 @@
+{
+  "name": "telegram-iptv-bot",
+  "version": "1.0.0",
+  "description": "Bot do Telegram para gerenciar clientes IPTV (IBOPlayer, IBOPro, VU Player)",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "db:init": "node database/init.js"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "iptv",
+    "iboplayer",
+    "ibopro",
+    "vuplayer"
+  ],
+  "author": "Isaac",
+  "license": "MIT",
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.0",
+    "axios": "^1.6.0",
+    "better-sqlite3": "^9.2.2",
+    "js-sha3": "^0.9.3",
+    "sharp": "^0.34.5",
+    "telegraf": "^4.15.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
