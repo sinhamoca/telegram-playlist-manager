@@ -10,8 +10,9 @@ Gerencie seus clientes IPTV de forma rápida e fácil.
 *Funcionalidades:*
 🔍 Buscar clientes por nome ou MAC
 ⚡ Gestão rápida (cadastro + gerenciar)
-➕ Cadastrar novos clientes
+🗂️ Servidores (grupos de clientes)
 📋 Gerenciar playlists
+🔄 Trocar domínio em massa
 📊 Estatísticas e logs
 
 *Suporte a:*
@@ -22,7 +23,7 @@ Gerencie seus clientes IPTV de forma rápida e fácil.
 Escolha uma opção abaixo para começar:`;
 }
 
-// Detalhes do cliente
+// Detalhes do cliente (atualizado com servidor)
 function clientDetailsMessage(client, session = null) {
   const playerNames = {
     'iboplayer': 'IBOPlayer',
@@ -40,6 +41,13 @@ function clientDetailsMessage(client, session = null) {
   
   if (client.domain) {
     message += `🌐 *Domínio:* ${client.domain}\n`;
+  }
+  
+  // Mostrar servidor se tiver
+  if (client.server_name) {
+    message += `🗂️ *Servidor:* ${client.server_color || '🔵'} ${client.server_name}\n`;
+  } else {
+    message += `🗂️ *Servidor:* ⚪ Nenhum\n`;
   }
   
   message += `📅 *Cadastrado:* ${createdDate}\n`;
@@ -113,7 +121,7 @@ function playlistDetailsMessage(playlist, clientName) {
   return message;
 }
 
-// Busca de clientes (resultados)
+// Busca de clientes (resultados) - atualizado com servidor
 function searchResultsMessage(clients, query) {
   let message = `🔍 *Resultados para:* "${query}"\n`;
   message += `━━━━━━━━━━━━━━━━━━━━\n\n`;
@@ -135,8 +143,15 @@ function searchResultsMessage(clients, query) {
       'vuplayer': '📱'
     }[client.player_type] || '📱';
     
-    message += `${index + 1}. ${playerEmoji} *${client.name}*\n`;
+    const serverIndicator = client.server_color ? ` ${client.server_color}` : '';
+    
+    message += `${index + 1}. ${playerEmoji} *${client.name}*${serverIndicator}\n`;
     message += `   🔑 ${client.mac_address}\n`;
+    
+    if (client.server_name) {
+      message += `   🗂️ ${client.server_name}\n`;
+    }
+    
     message += `   📅 ${new Date(client.created_at).toLocaleDateString('pt-BR')}\n\n`;
   });
   
@@ -149,12 +164,14 @@ function searchResultsMessage(clients, query) {
   return message;
 }
 
-// Estatísticas
+// Estatísticas (atualizado com servidores)
 function statsMessage(stats) {
   let message = `📈 *Estatísticas do Sistema*\n`;
   message += `━━━━━━━━━━━━━━━━━━━━\n\n`;
   message += `👥 *Total de Clientes:* ${stats.totalClients}\n`;
+  message += `🗂️ *Total de Servidores:* ${stats.totalServers}\n`;
   message += `✅ *Sessões Ativas:* ${stats.activeSessions}\n`;
+  message += `⚪ *Clientes sem Servidor:* ${stats.clientsWithoutServer}\n`;
   message += `📊 *Atividade (24h):* ${stats.recentActivity} ações\n\n`;
   
   message += `*Por Player:*\n`;
@@ -166,6 +183,13 @@ function statsMessage(stats) {
     };
     message += `📱 ${names[player_type] || player_type}: ${count}\n`;
   });
+  
+  if (stats.byServer && stats.byServer.length > 0) {
+    message += `\n*Por Servidor (Top 5):*\n`;
+    stats.byServer.forEach(({ name, color, count }) => {
+      message += `${color || '🔵'} ${name}: ${count}\n`;
+    });
+  }
   
   return message;
 }
@@ -187,7 +211,7 @@ function errorMessage(message) {
 
 // Confirmação de exclusão
 function confirmDeleteMessage(type, name) {
-  const typeText = type === 'client' ? 'cliente' : 'playlist';
+  const typeText = type === 'client' ? 'cliente' : type === 'server' ? 'servidor' : 'playlist';
   
   return `⚠️ *Confirmar Exclusão*\n\n` +
          `Tem certeza que deseja deletar ${typeText}:\n` +

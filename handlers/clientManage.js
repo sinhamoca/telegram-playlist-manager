@@ -8,26 +8,68 @@ const messages = require('../utils/messages');
 // Escapar caracteres especiais do Markdown MarkdownV2
 function escapeMarkdown(text) {
   if (!text) return text;
-  // Caracteres especiais do MarkdownV2
   return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
+}
+
+// Helper: Obter chat ID de qualquer contexto
+function getChatId(ctx) {
+  return ctx.chat?.id || ctx.from?.id || ctx.callbackQuery?.from?.id;
+}
+
+// Helper: Enviar mensagem de forma segura (funciona em inline mode)
+async function safeSendMessage(ctx, text, options = {}) {
+  const chatId = getChatId(ctx);
+  if (!chatId) {
+    console.error('safeSendMessage: não foi possível obter chat ID');
+    return null;
+  }
+  
+  try {
+    return await ctx.telegram.sendMessage(chatId, text, options);
+  } catch (error) {
+    console.error('Erro ao enviar mensagem:', error.message);
+    return null;
+  }
+}
+
+// Helper: Editar ou enviar mensagem
+async function safeEditOrSend(ctx, text, options = {}) {
+  const canEdit = ctx.callbackQuery && ctx.callbackQuery.message && !ctx.callbackQuery.inline_message_id;
+  
+  if (canEdit) {
+    try {
+      return await ctx.editMessageText(text, options);
+    } catch (error) {
+      // Se falhar ao editar, tenta enviar nova
+      return await safeSendMessage(ctx, text, options);
+    }
+  } else {
+    return await safeSendMessage(ctx, text, options);
+  }
+}
+
+// Obter serviço do player (sem mostrar menu)
+async function getPlayerServiceDirect(client) {
+  const playerServices = {
+    'iboplayer': require('../services/iboplayer'),
+    'ibopro': require('../services/ibopro'),
+    'vuplayer': require('../services/vuplayer')
+  };
+  
+  const service = playerServices[client.player_type];
+  if (!service) {
+    throw new Error(`Player ${client.player_type} não suportado`);
+  }
+  
+  const session = await sessionManager.getValidSession(client, service.login);
+  
+  return { service, session };
 }
 
 // Obter serviço do player
 async function getPlayerService(ctx, client) {
   try {
-    const playerServices = {
-      'iboplayer': require('../services/iboplayer'),
-      'ibopro': require('../services/ibopro'),
-      'vuplayer': require('../services/vuplayer')
-    };
-    
-    const service = playerServices[client.player_type];
-    if (!service) {
-      throw new Error(`Player ${client.player_type} não suportado`);
-    }
-    
-    // Obter sessão válida (usa cache se disponível)
-    const session = await sessionManager.getValidSession(client, service.login);
+    const { service, session } = await getPlayerServiceDirect(client);
     
     // Mostrar menu do cliente
     await showClientMenu(ctx, client, session);
@@ -44,23 +86,10 @@ async function getPlayerService(ctx, client) {
 async function showClientMenu(ctx, client, session = null) {
   const messageText = messages.clientDetailsMessage(client, session);
   
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(
-      messageText,
-      {
-        parse_mode: 'Markdown',
-        ...keyboards.clientMenu(client.id, client.name)
-      }
-    );
-  } else {
-    await ctx.reply(
-      messageText,
-      {
-        parse_mode: 'Markdown',
-        ...keyboards.clientMenu(client.id, client.name)
-      }
-    );
-  }
+  await safeEditOrSend(ctx, messageText, {
+    parse_mode: 'Markdown',
+    ...keyboards.clientMenu(client.id, client.name)
+  });
 }
 
 // Listar playlists do cliente
@@ -68,11 +97,8 @@ async function listClientPlaylists(ctx, clientId, originalMessageId = null) {
   try {
     const client = db.getClientById(clientId);
     if (!client) {
-      // Verificar se é callback ou mensagem
       if (ctx.callbackQuery) {
         await ctx.answerCbQuery('❌ Cliente não encontrado');
-      } else {
-        await ctx.reply('❌ Cliente não encontrado');
       }
       return;
     }
@@ -82,32 +108,42 @@ async function listClientPlaylists(ctx, clientId, originalMessageId = null) {
       await ctx.answerCbQuery();
     }
     
-    // Se for mensagem de texto, enviar nova mensagem. Se for callback, editar.
-    const loadingMsg = messages.loadingMessage('Carregando playlists');
-    let messageToEdit;
+    // Obter chat ID (pode vir de diferentes lugares)
+    const chatId = getChatId(ctx);
     
-    if (ctx.callbackQuery) {
-      // É callback, editar a mensagem do callback
-      messageToEdit = ctx.callbackQuery.message.message_id;
-      await ctx.editMessageText(loadingMsg);
-    } else if (originalMessageId) {
-      // Temos o ID da mensagem original, editar ela
-      messageToEdit = originalMessageId;
-      await ctx.telegram.editMessageText(ctx.chat.id, originalMessageId, undefined, loadingMsg);
-    } else {
-      // Nova mensagem
-      const msg = await ctx.reply(loadingMsg);
-      messageToEdit = msg.message_id;
+    if (!chatId) {
+      console.error('Erro: não foi possível obter chat ID');
+      return;
     }
     
-    const { service, session } = await getPlayerService(ctx, client);
+    const loadingMsg = messages.loadingMessage('Carregando playlists');
+    let messageToEdit = null;
+    
+    // Verificar se podemos editar a mensagem (não é inline)
+    const canEdit = ctx.callbackQuery && ctx.callbackQuery.message && !ctx.callbackQuery.inline_message_id;
+    
+    if (canEdit) {
+      // É callback com mensagem editável
+      messageToEdit = ctx.callbackQuery.message.message_id;
+      await ctx.editMessageText(loadingMsg);
+    } else if (originalMessageId && chatId) {
+      // Temos o ID da mensagem original
+      messageToEdit = originalMessageId;
+      await ctx.telegram.editMessageText(chatId, originalMessageId, undefined, loadingMsg);
+    } else {
+      // Nova mensagem (inline mode ou sem contexto) - usar telegram.sendMessage
+      const sentMessage = await ctx.telegram.sendMessage(chatId, loadingMsg);
+      messageToEdit = sentMessage.message_id;
+    }
+    
+    const { service, session } = await getPlayerServiceDirect(client);
     const playlists = await service.listPlaylists(session.sessionData);
     
     const messageText = messages.playlistsListMessage(client.name, playlists);
     
-    // Editar a mensagem (sempre editamos agora)
+    // Editar a mensagem
     await ctx.telegram.editMessageText(
-      ctx.chat.id,
+      chatId,
       messageToEdit,
       undefined,
       messageText,
@@ -118,6 +154,7 @@ async function listClientPlaylists(ctx, clientId, originalMessageId = null) {
     );
     
     // Salvar playlists e messageId na sessão para uso posterior
+    ctx.session = ctx.session || {};
     ctx.session.currentPlaylists = {
       clientId,
       playlists,
@@ -128,12 +165,12 @@ async function listClientPlaylists(ctx, clientId, originalMessageId = null) {
   } catch (error) {
     console.error('Erro ao listar playlists:', error);
     
-    // Tentar editar ou enviar nova mensagem
+    const errorMsg = messages.errorMessage(`Erro: ${error.message}`);
+    const chatId = ctx.chat?.id || ctx.from?.id;
+    
     try {
-      if (ctx.callbackQuery) {
-        await ctx.editMessageText(messages.errorMessage(`Erro: ${error.message}`));
-      } else {
-        await ctx.reply(messages.errorMessage(`Erro: ${error.message}`));
+      if (chatId) {
+        await ctx.telegram.sendMessage(chatId, errorMsg);
       }
     } catch (e) {
       console.error('Erro ao enviar mensagem de erro:', e);
@@ -145,7 +182,7 @@ async function listClientPlaylists(ctx, clientId, originalMessageId = null) {
 async function viewPlaylist(ctx, clientId, playlistId) {
   try {
     const client = db.getClientById(clientId);
-    const cached = ctx.session.currentPlaylists;
+    const cached = ctx.session?.currentPlaylists;
     
     if (!cached || cached.clientId !== clientId) {
       await ctx.answerCbQuery('❌ Playlists não carregadas. Recarregue a lista.');
@@ -162,13 +199,10 @@ async function viewPlaylist(ctx, clientId, playlistId) {
     
     const messageText = messages.playlistDetailsMessage(playlist, client.name);
     
-    await ctx.editMessageText(
-      messageText,
-      {
-        parse_mode: 'Markdown',
-        ...keyboards.playlistActionsMenu(clientId, playlistId)
-      }
-    );
+    await safeEditOrSend(ctx, messageText, {
+      parse_mode: 'Markdown',
+      ...keyboards.playlistActionsMenu(clientId, playlistId)
+    });
     
   } catch (error) {
     console.error('Erro ao ver playlist:', error);
@@ -187,20 +221,20 @@ async function startAddPlaylist(ctx, clientId) {
     
     await ctx.answerCbQuery();
     
+    ctx.session = ctx.session || {};
     ctx.session.playlistAdd = {
       clientId,
       step: 'name'
     };
     
-    await ctx.editMessageText(
-      `➕ *Adicionar Playlist*\n\n` +
+    const messageText = `➕ *Adicionar Playlist*\n\n` +
       `📱 Cliente: ${client.name}\n\n` +
-      `Qual o *nome* da playlist?`,
-      {
-        parse_mode: 'Markdown',
-        ...keyboards.cancelMenu()
-      }
-    );
+      `Qual o *nome* da playlist?`;
+    
+    await safeEditOrSend(ctx, messageText, {
+      parse_mode: 'Markdown',
+      ...keyboards.cancelMenu()
+    });
     
   } catch (error) {
     console.error('Erro ao iniciar adição:', error);
@@ -210,7 +244,7 @@ async function startAddPlaylist(ctx, clientId) {
 
 // Processar adição de playlist
 async function handleAddPlaylistMessage(ctx) {
-  const data = ctx.session.playlistAdd;
+  const data = ctx.session?.playlistAdd;
   if (!data) return false;
   
   const text = ctx.message.text.trim();
@@ -228,20 +262,16 @@ async function handleAddPlaylistMessage(ctx) {
         return true;
         
       case 'url':
-        // Validar URL
         if (!text.startsWith('http://') && !text.startsWith('https://')) {
           await ctx.reply('❌ URL inválida! Deve começar com http:// ou https://');
           return true;
         }
         
         data.url = text;
-        
-        // Definir valores padrão automaticamente
         data.protect = false;
         data.pin = '';
         data.type = 'general';
         
-        // Finalizar diretamente
         await finishAddPlaylist(ctx, data.clientId, data);
         return true;
         
@@ -258,7 +288,7 @@ async function handleAddPlaylistMessage(ctx) {
 
 // Confirmar proteção da playlist
 async function handlePlaylistProtection(ctx, clientId, protect) {
-  const data = ctx.session.playlistAdd;
+  const data = ctx.session?.playlistAdd;
   
   if (!data) {
     await ctx.answerCbQuery('❌ Sessão expirada');
@@ -287,9 +317,8 @@ async function handlePlaylistProtection(ctx, clientId, protect) {
 
 // Finalizar adição com tipo selecionado
 async function finishAddPlaylist(ctx, clientId, data) {
-  // Se data não for passado, usar da sessão (compatibilidade com callbacks antigos)
   if (!data) {
-    data = ctx.session.playlistAdd;
+    data = ctx.session?.playlistAdd;
   }
   
   if (!data) {
@@ -299,17 +328,11 @@ async function finishAddPlaylist(ctx, clientId, data) {
   
   if (ctx.callbackQuery) await ctx.answerCbQuery();
   
-  // Verificar se é callback ou mensagem
-  let loadingMessage;
-  if (ctx.callbackQuery) {
-    loadingMessage = await ctx.editMessageText(messages.loadingMessage('Adicionando playlist'));
-  } else {
-    loadingMessage = await ctx.reply(messages.loadingMessage('Adicionando playlist'));
-  }
+  const loadingMessage = await ctx.reply(messages.loadingMessage('Adicionando playlist'));
   
   try {
     const client = db.getClientById(clientId);
-    const { service, session } = await getPlayerService(ctx, client);
+    const { service, session } = await getPlayerServiceDirect(client);
     
     await service.addPlaylist(session.sessionData, {
       name: data.name,
@@ -324,9 +347,7 @@ async function finishAddPlaylist(ctx, clientId, data) {
     const successMsg = messages.successMessage(`Playlist "${data.name}" adicionada com sucesso!`) + '\n\n' +
       'Carregando lista atualizada...';
     
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(successMsg);
-    } else {
+    if (ctx.chat && loadingMessage) {
       await ctx.telegram.editMessageText(
         ctx.chat.id,
         loadingMessage.message_id,
@@ -337,8 +358,7 @@ async function finishAddPlaylist(ctx, clientId, data) {
     
     delete ctx.session.playlistAdd;
     
-    // Recarregar playlists (usar messageId da sessão se disponível)
-    const messageId = ctx.session.currentPlaylists?.messageId || loadingMessage.message_id;
+    const messageId = ctx.session?.currentPlaylists?.messageId || loadingMessage?.message_id;
     setTimeout(() => listClientPlaylists(ctx, clientId, messageId), 1000);
     
   } catch (error) {
@@ -346,15 +366,15 @@ async function finishAddPlaylist(ctx, clientId, data) {
     db.logAction(clientId, 'add_playlist', false, error.message);
     
     const errorMsg = messages.errorMessage(`Erro: ${error.message}`);
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(errorMsg);
-    } else {
+    if (ctx.chat && loadingMessage) {
       await ctx.telegram.editMessageText(
         ctx.chat.id,
         loadingMessage.message_id,
         undefined,
         errorMsg
       );
+    } else {
+      await ctx.reply(errorMsg);
     }
     delete ctx.session.playlistAdd;
   }
@@ -364,7 +384,7 @@ async function finishAddPlaylist(ctx, clientId, data) {
 async function startEditPlaylist(ctx, clientId, playlistId) {
   try {
     const client = db.getClientById(clientId);
-    const cached = ctx.session.currentPlaylists;
+    const cached = ctx.session?.currentPlaylists;
     
     if (!cached) {
       await ctx.answerCbQuery('❌ Sessão expirada. Recarregue a lista.');
@@ -387,16 +407,13 @@ async function startEditPlaylist(ctx, clientId, playlistId) {
       step: 'name'
     };
     
-    await ctx.editMessageText(
-      `✏️ Editar Playlist\n\n` +
+    const messageText = `✏️ Editar Playlist\n\n` +
       `📱 Cliente: ${client.name}\n` +
       `📋 Playlist: ${playlist.name}\n\n` +
       `Envie o novo nome da playlist:\n` +
-      `(Atual: ${playlist.name})`,
-      {
-        ...keyboards.cancelMenu()
-      }
-    );
+      `(Atual: ${playlist.name})`;
+    
+    await safeEditOrSend(ctx, messageText, keyboards.cancelMenu());
     
   } catch (error) {
     console.error('Erro ao iniciar edição:', error);
@@ -406,7 +423,7 @@ async function startEditPlaylist(ctx, clientId, playlistId) {
 
 // Processar edição de playlist
 async function handleEditPlaylistMessage(ctx) {
-  const data = ctx.session.playlistEdit;
+  const data = ctx.session?.playlistEdit;
   if (!data) return false;
   
   const text = ctx.message.text.trim();
@@ -424,15 +441,12 @@ async function handleEditPlaylistMessage(ctx) {
         return true;
         
       case 'url':
-        // Validar URL
         if (!text.startsWith('http://') && !text.startsWith('https://')) {
           await ctx.reply('❌ URL inválida! Deve começar com http:// ou https://');
           return true;
         }
         
         data.url = text;
-        
-        // Finalizar edição
         await finishEditPlaylist(ctx, data.clientId, data.playlistId, data);
         return true;
         
@@ -453,7 +467,7 @@ async function finishEditPlaylist(ctx, clientId, playlistId, data) {
   
   try {
     const client = db.getClientById(clientId);
-    const { service, session } = await getPlayerService(ctx, client);
+    const { service, session } = await getPlayerServiceDirect(client);
     
     await service.editPlaylist(session.sessionData, playlistId, {
       name: data.name,
@@ -472,8 +486,7 @@ async function finishEditPlaylist(ctx, clientId, playlistId, data) {
     
     delete ctx.session.playlistEdit;
     
-    // Recarregar playlists (usar messageId da sessão)
-    const messageId = ctx.session.currentPlaylists?.messageId;
+    const messageId = ctx.session?.currentPlaylists?.messageId;
     setTimeout(() => listClientPlaylists(ctx, clientId, messageId), 1000);
     
   } catch (error) {
@@ -488,7 +501,7 @@ async function finishEditPlaylist(ctx, clientId, playlistId, data) {
 async function deletePlaylist(ctx, clientId, playlistId) {
   try {
     const client = db.getClientById(clientId);
-    const cached = ctx.session.currentPlaylists;
+    const cached = ctx.session?.currentPlaylists;
     
     if (!cached) {
       await ctx.answerCbQuery('❌ Sessão expirada');
@@ -502,13 +515,13 @@ async function deletePlaylist(ctx, clientId, playlistId) {
     }
     
     await ctx.answerCbQuery();
-    await ctx.editMessageText(
-      messages.confirmDeleteMessage('playlist', playlist.name),
-      {
-        parse_mode: 'Markdown',
-        ...keyboards.confirmDeleteMenu('playlist', playlistId, clientId)
-      }
-    );
+    
+    const messageText = messages.confirmDeleteMessage('playlist', playlist.name);
+    
+    await safeEditOrSend(ctx, messageText, {
+      parse_mode: 'Markdown',
+      ...keyboards.confirmDeleteMenu('playlist', playlistId, clientId)
+    });
     
   } catch (error) {
     console.error('Erro ao deletar:', error);
@@ -520,31 +533,32 @@ async function deletePlaylist(ctx, clientId, playlistId) {
 async function confirmDeletePlaylist(ctx, clientId, playlistId) {
   try {
     const client = db.getClientById(clientId);
-    const cached = ctx.session.currentPlaylists;
+    const cached = ctx.session?.currentPlaylists;
+    const chatId = getChatId(ctx);
     
-    const playlist = cached.playlists.find(p => p.id === playlistId);
+    const playlist = cached?.playlists?.find(p => p.id === playlistId);
     
     await ctx.answerCbQuery();
-    await ctx.editMessageText(messages.loadingMessage('Deletando playlist'));
     
-    const { service, session } = await getPlayerService(ctx, client);
+    await safeEditOrSend(ctx, messages.loadingMessage('Deletando playlist'));
+    
+    const { service, session } = await getPlayerServiceDirect(client);
     await service.deletePlaylist(session.sessionData, playlistId);
     
-    db.logAction(clientId, 'delete_playlist', true, `Playlist "${playlist.name}" deletada`);
+    db.logAction(clientId, 'delete_playlist', true, `Playlist "${playlist?.name || playlistId}" deletada`);
     
-    await ctx.editMessageText(
-      messages.successMessage(`Playlist "${playlist.name}" deletada!`) + '\n\n' +
-      'Carregando lista atualizada...'
-    );
+    const successMsg = messages.successMessage(`Playlist "${playlist?.name || ''}" deletada!`) + '\n\n' +
+      'Carregando lista atualizada...';
     
-    // Recarregar playlists (usar messageId da sessão)
-    const messageId = ctx.session.currentPlaylists?.messageId || ctx.callbackQuery.message.message_id;
-    setTimeout(() => listClientPlaylists(ctx, clientId, messageId), 1000);
+    await safeSendMessage(ctx, successMsg);
+    
+    setTimeout(() => listClientPlaylists(ctx, clientId), 1000);
     
   } catch (error) {
     console.error('Erro ao deletar playlist:', error);
     db.logAction(clientId, 'delete_playlist', false, error.message);
-    await ctx.editMessageText(messages.errorMessage(`Erro: ${error.message}`));
+    
+    await safeSendMessage(ctx, messages.errorMessage(`Erro: ${error.message}`));
   }
 }
 
@@ -560,18 +574,17 @@ async function startEditClient(ctx, clientId) {
     
     await ctx.answerCbQuery();
     
+    ctx.session = ctx.session || {};
     ctx.session.clientEdit = {
       clientId,
       step: 'field',
       originalData: { ...client }
     };
     
-    // Montar botões baseado no tipo de player
     const buttons = [
       [Markup.button.callback('📝 Nome', `client:${clientId}:edit:name`)]
     ];
     
-    // Domain/URL só para IBOPlayer (outros players não usam)
     if (client.player_type === 'iboplayer') {
       buttons.push([Markup.button.callback('🌐 Domain/URL', `client:${clientId}:edit:domain`)]);
     }
@@ -582,17 +595,16 @@ async function startEditClient(ctx, clientId) {
       [Markup.button.callback('🔙 Cancelar', `client:${clientId}:menu`)]
     );
     
-    await ctx.editMessageText(
-      `✏️ *Editar Cliente*\n\n` +
+    const messageText = `✏️ *Editar Cliente*\n\n` +
       `📱 Cliente: ${client.name}\n` +
       `🎮 Player: ${client.player_type}\n` +
       `🔑 MAC: ${client.mac_address}\n\n` +
-      `Qual campo deseja editar?`,
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard(buttons)
-      }
-    );
+      `Qual campo deseja editar?`;
+    
+    await safeEditOrSend(ctx, messageText, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(buttons)
+    });
     
   } catch (error) {
     console.error('Erro ao iniciar edição:', error);
@@ -607,6 +619,7 @@ async function selectEditField(ctx, clientId, field) {
     
     await ctx.answerCbQuery();
     
+    ctx.session = ctx.session || {};
     ctx.session.clientEdit = {
       clientId,
       step: 'value',
@@ -628,16 +641,15 @@ async function selectEditField(ctx, clientId, field) {
       'key': client.device_key
     };
     
-    await ctx.editMessageText(
-      `✏️ *Editar ${fieldNames[field]}*\n\n` +
+    const messageText = `✏️ *Editar ${fieldNames[field]}*\n\n` +
       `📱 Cliente: ${client.name}\n` +
       `Valor atual: \`${currentValues[field]}\`\n\n` +
-      `Envie o novo valor:`,
-      {
-        parse_mode: 'Markdown',
-        ...keyboards.cancelMenu()
-      }
-    );
+      `Envie o novo valor:`;
+    
+    await safeEditOrSend(ctx, messageText, {
+      parse_mode: 'Markdown',
+      ...keyboards.cancelMenu()
+    });
     
   } catch (error) {
     console.error('Erro:', error);
@@ -647,7 +659,7 @@ async function selectEditField(ctx, clientId, field) {
 
 // Processar edição de cliente
 async function handleEditClientMessage(ctx) {
-  const data = ctx.session.clientEdit;
+  const data = ctx.session?.clientEdit;
   if (!data || data.step !== 'value') return false;
   
   const text = ctx.message.text.trim();
@@ -655,15 +667,30 @@ async function handleEditClientMessage(ctx) {
   try {
     const client = db.getClientById(data.clientId);
     
-    // Validações específicas por campo
-    if (data.field === 'mac' && !/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/.test(text)) {
-      await ctx.reply('❌ MAC Address inválido! Formato: 00:1A:79:XX:XX:XX');
-      return true;
+    if (data.field === 'mac') {
+      if (!/^([a-z0-9]{2}:[a-z0-9]{2}:[a-z0-9]{2}:[a-z0-9]{2}:[a-z0-9]{2}:[a-z0-9]{2})$/i.test(text)) {
+        await ctx.reply('❌ MAC Address inválido! Formato: 00:1A:79:XX:XX:XX');
+        return true;
+      }
+      
+      const existingClient = db.getClientByMac(text);
+      if (existingClient && existingClient.id !== data.clientId) {
+        await ctx.reply(
+          `❌ Este MAC Address já está cadastrado!\n\n` +
+          `📱 Cliente: *${existingClient.name}*\n` +
+          `🎮 Player: ${existingClient.player_type}\n\n` +
+          `Operação cancelada. Voltando ao menu...`,
+          { parse_mode: 'Markdown' }
+        );
+        
+        delete ctx.session.clientEdit;
+        setTimeout(() => showClientMenu(ctx, client), 1500);
+        return true;
+      }
     }
     
     await ctx.reply(messages.loadingMessage('Atualizando cliente'));
     
-    // Mapear campo para coluna do banco
     const fieldMap = {
       'name': 'name',
       'domain': 'domain',
@@ -673,10 +700,8 @@ async function handleEditClientMessage(ctx) {
     
     const dbField = fieldMap[data.field];
     
-    // Atualizar no banco
     db.updateClient(data.clientId, { [dbField]: text });
     
-    // Se mudou MAC ou Device Key, invalidar sessão
     if (data.field === 'mac' || data.field === 'key') {
       await sessionManager.deleteSession(data.clientId, client.player_type);
       console.log(`🔄 Sessão invalidada para cliente ${data.clientId} (${data.field} alterado)`);
@@ -698,8 +723,8 @@ async function handleEditClientMessage(ctx) {
     
     delete ctx.session.clientEdit;
     
-    // Mostrar menu do cliente atualizado
-    setTimeout(() => showClientMenu(ctx, data.clientId), 1000);
+    const updatedClient = db.getClientById(data.clientId);
+    setTimeout(() => showClientMenu(ctx, updatedClient), 1000);
     
   } catch (error) {
     console.error('Erro ao editar cliente:', error);
@@ -720,13 +745,13 @@ async function deleteClient(ctx, clientId) {
     }
     
     await ctx.answerCbQuery();
-    await ctx.editMessageText(
-      messages.confirmDeleteMessage('client', client.name),
-      {
-        parse_mode: 'Markdown',
-        ...keyboards.confirmDeleteMenu('client', clientId)
-      }
-    );
+    
+    const messageText = messages.confirmDeleteMessage('client', client.name);
+    
+    await safeEditOrSend(ctx, messageText, {
+      parse_mode: 'Markdown',
+      ...keyboards.confirmDeleteMenu('client', clientId)
+    });
     
   } catch (error) {
     console.error('Erro:', error);
@@ -741,17 +766,19 @@ async function confirmDeleteClient(ctx, clientId) {
     
     await ctx.answerCbQuery();
     
-    // Deletar sessão em cache
     await sessionManager.deleteSession(clientId, client.player_type);
     
-    // Deletar do banco
     db.deleteClient(clientId);
     
-    await ctx.editMessageText(
-      messages.successMessage(`Cliente "${client.name}" deletado com sucesso!`)
-    );
+    const successMsg = messages.successMessage(`Cliente "${client.name}" deletado com sucesso!`);
+    const canEdit = ctx.callbackQuery && ctx.callbackQuery.message && !ctx.callbackQuery.inline_message_id;
     
-    // Voltar ao menu após 2 segundos
+    if (canEdit) {
+      await ctx.editMessageText(successMsg);
+    } else {
+      await ctx.reply(successMsg);
+    }
+    
     setTimeout(async () => {
       await ctx.reply(
         messages.welcomeMessage(),
@@ -764,7 +791,14 @@ async function confirmDeleteClient(ctx, clientId) {
     
   } catch (error) {
     console.error('Erro ao deletar cliente:', error);
-    await ctx.editMessageText(messages.errorMessage(`Erro: ${error.message}`));
+    
+    const canEdit = ctx.callbackQuery && ctx.callbackQuery.message && !ctx.callbackQuery.inline_message_id;
+    
+    if (canEdit) {
+      await ctx.editMessageText(messages.errorMessage(`Erro: ${error.message}`));
+    } else {
+      await ctx.reply(messages.errorMessage(`Erro: ${error.message}`));
+    }
   }
 }
 
@@ -781,6 +815,7 @@ async function startChangeDomain(ctx, clientId, playlistId) {
     
     await ctx.answerCbQuery();
     
+    ctx.session = ctx.session || {};
     ctx.session.domainChange = {
       clientId,
       playlistId,
@@ -788,20 +823,28 @@ async function startChangeDomain(ctx, clientId, playlistId) {
       step: 'new_domain'
     };
     
-    await ctx.editMessageText(
-      `🔄 *Trocar Domínio*\n\n` +
+    const messageText = `🔄 *Trocar Domínio*\n\n` +
       `📺 Playlist ID: ${playlistId}\n` +
       `🎮 Player: ${client.player_type}\n\n` +
       `Digite o *novo domínio* (sem http/https):\n\n` +
       `💡 *Exemplos válidos:*\n` +
       `• servidor.com\n` +
       `• painel.exemplo.com\n` +
-      `• servidor.com:8080`,
-      {
+      `• servidor.com:8080`;
+    
+    const canEdit = ctx.callbackQuery && ctx.callbackQuery.message && !ctx.callbackQuery.inline_message_id;
+    
+    if (canEdit) {
+      await ctx.editMessageText(messageText, {
         parse_mode: 'Markdown',
         ...keyboards.cancelMenu()
-      }
-    );
+      });
+    } else {
+      await ctx.reply(messageText, {
+        parse_mode: 'Markdown',
+        ...keyboards.cancelMenu()
+      });
+    }
     
   } catch (error) {
     console.error('Erro ao iniciar troca de domínio:', error);
@@ -811,16 +854,15 @@ async function startChangeDomain(ctx, clientId, playlistId) {
 
 // Processar mensagem de novo domínio
 async function handleChangeDomainMessage(ctx) {
-  const data = ctx.session.domainChange;
+  const data = ctx.session?.domainChange;
   if (!data || data.step !== 'new_domain') return false;
   
   const newDomain = ctx.message.text.trim()
-    .replace(/^https?:\/\//, '')  // Remover protocolo
-    .replace(/\/$/, '')           // Remover barra final
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '')
     .toLowerCase();
   
   try {
-    // Validar domínio
     const domainRegex = /^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:\d+)?$/;
     if (!domainRegex.test(newDomain)) {
       await ctx.reply(
@@ -833,25 +875,9 @@ async function handleChangeDomainMessage(ctx) {
     
     await ctx.reply(messages.loadingMessage('Buscando playlist e atualizando...'));
     
-    // Buscar cliente e service
     const client = db.getClientById(data.clientId);
+    const { service, session } = await getPlayerServiceDirect(client);
     
-    // Obter service diretamente sem usar getPlayerService (que mostra menu)
-    const playerServices = {
-      'iboplayer': require('../services/iboplayer'),
-      'ibopro': require('../services/ibopro'),
-      'vuplayer': require('../services/vuplayer')
-    };
-    
-    const service = playerServices[client.player_type];
-    if (!service) {
-      await ctx.reply('❌ Player não suportado');
-      delete ctx.session.domainChange;
-      return true;
-    }
-    
-    // Obter sessão válida passando a função de login do service
-    const session = await sessionManager.getValidSession(client, service.login);
     const playlists = await service.listPlaylists(session.sessionData);
     const playlist = playlists.find(p => p.id === data.playlistId);
     
@@ -861,7 +887,6 @@ async function handleChangeDomainMessage(ctx) {
       return true;
     }
     
-    // Extrair domínio atual da URL
     const oldUrl = playlist.url;
     const urlMatch = oldUrl.match(/^(https?:\/\/)?([^\/\?]+)/);
     const oldDomain = urlMatch ? urlMatch[2] : null;
@@ -872,11 +897,9 @@ async function handleChangeDomainMessage(ctx) {
       return true;
     }
     
-    // Preservar protocolo (http ou https)
     const protocolMatch = oldUrl.match(/^(https?):\/\//);
     const protocol = protocolMatch ? protocolMatch[1] : 'http';
     
-    // Substituir domínio mantendo o resto da URL
     const newUrl = oldUrl.replace(
       new RegExp(`^https?:\/\/${oldDomain.replace(/\./g, '\\.')}`, 'i'),
       `${protocol}://${newDomain}`
@@ -889,7 +912,6 @@ async function handleChangeDomainMessage(ctx) {
       newUrl: newUrl.substring(0, 100)
     });
     
-    // Editar playlist com nova URL
     await service.editPlaylist(session.sessionData, data.playlistId, {
       name: playlist.name,
       url: newUrl,
@@ -898,8 +920,7 @@ async function handleChangeDomainMessage(ctx) {
       type: playlist.type || 'general'
     });
     
-    db.logAction(data.clientId, 'change_domain', true, 
-      `${oldDomain} → ${newDomain}`);
+    db.logAction(data.clientId, 'change_domain', true, `${oldDomain} → ${newDomain}`);
     
     await ctx.reply(
       messages.successMessage(
@@ -912,7 +933,6 @@ async function handleChangeDomainMessage(ctx) {
     
     delete ctx.session.domainChange;
     
-    // Voltar para a lista de playlists
     setTimeout(() => listClientPlaylists(ctx, data.clientId), 1500);
     
   } catch (error) {
@@ -926,6 +946,7 @@ async function handleChangeDomainMessage(ctx) {
 
 module.exports = {
   getPlayerService,
+  getPlayerServiceDirect,
   showClientMenu,
   listClientPlaylists,
   viewPlaylist,

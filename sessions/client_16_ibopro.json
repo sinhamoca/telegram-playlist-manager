@@ -1,0 +1,13 @@
+{
+  "clientId": 16,
+  "playerType": "ibopro",
+  "sessionData": {
+    "macAddress": "8c:4b:3f:91:a1:5b",
+    "password": "721501",
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhcGkubWFuYWdlLmxpdmUiLCJhdWQiOiI4Yzo0YjozZjo5MTphMTo1YiIsImlhdCI6MTc2NzA1MzA5OCwiZXhwIjoxNzY3OTE3MDk4LCJhY3QiOnRydWUsImV4cDIiOjE3Nzg0MzU2OTksInNlYyI6IjYzMTU2MDIiLCJ0eXAiOiIxMDYsMTIwLDEzNCw2MiwxMzEsMTIxLDExNiwxMzEifQ.aewiz9uTlhtJwOI4G08e7Bv32KKaCXDAJ1CirxK9v_Q",
+    "loginTime": "2025-12-30T00:04:58.575Z"
+  },
+  "createdAt": "2025-12-30T00:04:58.576Z",
+  "expiresAt": "2026-01-06T00:04:58.576Z",
+  "lastUsed": "2025-12-30T00:05:19.520Z"
+}

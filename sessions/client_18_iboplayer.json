@@ -1,0 +1,36 @@
+{
+  "clientId": 18,
+  "playerType": "iboplayer",
+  "sessionData": {
+    "domain": "iboiptv.com",
+    "macAddress": "58:4b:af:25:84:aa",
+    "deviceKey": "940868",
+    "deviceId": "670993736862725ed1cf4b32",
+    "cookies": [
+      "express:sess=eyJkZXZpY2VfaWQiOiI2NzA5OTM3MzY4NjI3MjVlZDFjZjRiMzIifQ==; path=/; secure; httponly",
+      "express:sess.sig=tXEQjYX2mWjPcD6Ksqaw5qwihrE; path=/; secure; httponly"
+    ],
+    "loginTime": "2025-12-31T11:25:32.270Z",
+    "device": {
+      "_id": "670993736862725ed1cf4b32",
+      "is_trial": 3,
+      "credit_count": 1,
+      "mac_address": "58:4b:af:25:84:aa",
+      "app_type": "lg",
+      "device_key": "940868",
+      "hostname": "iboiptv.com",
+      "expire_date": "2026-10-29",
+      "ip": "186.249.31.33",
+      "version": "1.0.6",
+      "created_time": "2024-10-11 21:06",
+      "__v": 0,
+      "activated_by": "64a02453-175a-4c6e-bd66-d0062f4149ea",
+      "last_seen": "2025-12-31 11:22",
+      "multi_activate": 0,
+      "api_version": "V3"
+    }
+  },
+  "createdAt": "2025-12-31T11:25:32.270Z",
+  "expiresAt": "2026-01-03T11:25:32.270Z",
+  "lastUsed": "2025-12-31T11:33:52.019Z"
+}

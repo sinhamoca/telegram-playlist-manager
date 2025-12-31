@@ -1,0 +1,32 @@
+{
+  "clientId": 19,
+  "playerType": "iboplayer",
+  "sessionData": {
+    "domain": "bobplayer.com",
+    "macAddress": "a0:d0:5b:12:0f:41",
+    "deviceKey": "602065",
+    "deviceId": "66b138b27261dedf8b6d39e4",
+    "cookies": [
+      "express:sess=eyJkZXZpY2VfaWQiOiI2NmIxMzhiMjcyNjFkZWRmOGI2ZDM5ZTQifQ==; path=/; httponly",
+      "express:sess.sig=GkVjSNDBg43HGz1WbpVtasvdowo; path=/; httponly"
+    ],
+    "loginTime": "2025-12-31T13:31:24.674Z",
+    "device": {
+      "_id": "66b138b27261dedf8b6d39e4",
+      "is_trial": 3,
+      "credit_count": 1,
+      "mac_address": "a0:d0:5b:12:0f:41",
+      "app_type": "samsung",
+      "device_key": "602065",
+      "expire_date": "2026-08-17",
+      "ip": "186.225.35.38, 172.71.238.125",
+      "__v": 0,
+      "reseller_id": "64a02453-175a-4c6e-bd66-d0062f4149ea",
+      "activated_by": "64a02453-175a-4c6e-bd66-d0062f4149ea",
+      "multi_activate": 0
+    }
+  },
+  "createdAt": "2025-12-31T13:31:24.674Z",
+  "expiresAt": "2026-01-03T13:31:24.674Z",
+  "lastUsed": "2025-12-31T13:32:20.577Z"
+}

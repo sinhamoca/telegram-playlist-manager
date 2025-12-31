@@ -5,7 +5,7 @@ const { Markup } = require('telegraf');
 function mainMenu() {
   return Markup.keyboard([
     ['🔍 Buscar Cliente', '⚡ Gestão Rápida'],
-    ['➕ Novo Cliente', '📊 Listar Todos'],
+    ['🗂️ Servidores', '📊 Listar Todos'],
     ['⚙️ Configurações', '📈 Estatísticas']
   ]).resize();
 }
@@ -18,6 +18,7 @@ function mainMenuInline() {
       Markup.button.callback('⚡ Gestão Rápida', 'quick:start')
     ],
     [
+      Markup.button.callback('🗂️ Servidores', 'server:list'),
       Markup.button.callback('📊 Listar Todos', 'list:all')
     ]
   ]);
@@ -37,15 +38,18 @@ function playerSelectionMenu() {
   ]);
 }
 
-// Menu do cliente
-function clientMenu(clientId, clientName) {
-  return Markup.inlineKeyboard([
+// Menu do cliente (atualizado com opção de servidor)
+function clientMenu(clientId, clientName, serverInfo = null) {
+  const buttons = [
     [Markup.button.callback('📋 Ver Playlists', `client:${clientId}:playlists`)],
     [Markup.button.callback('➕ Adicionar Playlist', `client:${clientId}:add`)],
+    [Markup.button.callback('🗂️ Atribuir Servidor', `client:${clientId}:assign_server`)],
     [Markup.button.callback('✏️ Editar Cliente', `client:${clientId}:edit`)],
     [Markup.button.callback('🗑️ Excluir Cliente', `client:${clientId}:delete`)],
     [Markup.button.callback('🔙 Voltar ao Menu', 'menu:main')]
-  ]);
+  ];
+  
+  return Markup.inlineKeyboard(buttons);
 }
 
 // Menu de playlists
@@ -124,7 +128,7 @@ function playlistProtectionMenu(clientId, playlistId = null, action = 'add') {
   ]);
 }
 
-// Lista de clientes (inline)
+// Lista de clientes (inline) - atualizado com info de servidor
 function clientsListMenu(clients) {
   const buttons = [];
   
@@ -135,9 +139,12 @@ function clientsListMenu(clients) {
       'vuplayer': '📱'
     }[client.player_type] || '📱';
     
+    // Mostrar cor do servidor se tiver
+    const serverIndicator = client.server_color ? ` ${client.server_color}` : '';
+    
     buttons.push([
       Markup.button.callback(
-        `${playerEmoji} ${client.name}`,
+        `${playerEmoji} ${client.name}${serverIndicator}`,
         `client:${client.id}:menu`
       )
     ]);
@@ -160,6 +167,40 @@ function settingsMenu() {
     [Markup.button.callback('📊 Ver Logs', 'settings:logs')],
     [Markup.button.callback('🔙 Voltar', 'menu:main')]
   ]);
+}
+
+// Menu de servidores
+function serversMenu() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('➕ Novo Servidor', 'server:add')],
+    [Markup.button.callback('📋 Ver Clientes por Servidor', 'server:list_clients')],
+    [Markup.button.callback('🔄 Trocar Domínio em Massa', 'server:bulk_domain')],
+    [Markup.button.callback('🔙 Voltar', 'menu:main')]
+  ]);
+}
+
+// Menu de seleção de servidor para cliente
+function serverSelectionMenu(servers, clientId, currentServerId = null) {
+  const buttons = servers.map(server => {
+    const isCurrent = server.id === currentServerId;
+    return [
+      Markup.button.callback(
+        `${server.color} ${server.name}${isCurrent ? ' ✓' : ''}`,
+        `client:${clientId}:server:${server.id}`
+      )
+    ];
+  });
+  
+  // Opção de remover do servidor
+  if (currentServerId) {
+    buttons.push([
+      Markup.button.callback('⚪ Remover do Servidor', `client:${clientId}:server:none`)
+    ]);
+  }
+  
+  buttons.push([Markup.button.callback('🔙 Cancelar', `client:${clientId}:menu`)]);
+  
+  return Markup.inlineKeyboard(buttons);
 }
 
 // Menu de cancelamento simples
@@ -186,6 +227,8 @@ module.exports = {
   playlistProtectionMenu,
   clientsListMenu,
   settingsMenu,
+  serversMenu,
+  serverSelectionMenu,
   cancelMenu,
   removeKeyboard
 };
