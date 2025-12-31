@@ -1,0 +1,32 @@
+{
+  "clientId": 12,
+  "playerType": "iboplayer",
+  "sessionData": {
+    "domain": "bobplayer.com",
+    "macAddress": "de:d3:6f:83:fe:fa",
+    "deviceKey": "315734",
+    "deviceId": "672d42f3f68782992455dba8",
+    "cookies": [
+      "express:sess=eyJkZXZpY2VfaWQiOiI2NzJkNDJmM2Y2ODc4Mjk5MjQ1NWRiYTgifQ==; path=/; httponly",
+      "express:sess.sig=IZzRAbmyFgXQQ3trgzJfelc72N4; path=/; httponly"
+    ],
+    "loginTime": "2025-12-29T13:06:38.297Z",
+    "device": {
+      "_id": "672d42f3f68782992455dba8",
+      "is_trial": 3,
+      "credit_count": 1,
+      "mac_address": "de:d3:6f:83:fe:fa",
+      "app_type": "lg",
+      "device_key": "315734",
+      "expire_date": "2026-11-15",
+      "ip": "177.11.7.199, 172.70.144.16",
+      "__v": 0,
+      "reseller_id": "64a02453-175a-4c6e-bd66-d0062f4149ea",
+      "activated_by": "64a02453-175a-4c6e-bd66-d0062f4149ea",
+      "multi_activate": 0
+    }
+  },
+  "createdAt": "2025-12-29T13:06:38.298Z",
+  "expiresAt": "2026-01-01T13:06:38.298Z",
+  "lastUsed": "2025-12-29T23:44:17.248Z"
+}
